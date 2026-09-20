@@ -1,0 +1,634 @@
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+ 
+local Window = Rayfield:CreateWindow({
+    Name = "Owner Tools",
+    LoadingTitle = "Owner Tools",
+    LoadingSubtitle = "Server Overview",
+    ConfigurationSaving = { Enabled = false },
+})
+ 
+local Tab = Window:CreateTab("ESP", 4483362458)
+ 
+-- ============ ESP STATE ============
+local espEnabled = false
+local espObjects = {} -- [player] = { highlight = Highlight, gui = BillboardGui, conn = RBXScriptConnection }
+ 
+local ESP_COLOR_HIDDEN = Color3.fromRGB(255, 0, 0)   -- behind a wall
+local ESP_COLOR_VISIBLE = Color3.fromRGB(0, 255, 0)  -- clear line of sight
+ 
+local function findHumanoid(character)
+    return character and character:FindFirstChildOfClass("Humanoid")
+end
+ 
+local function createESPFor(player)
+    if espObjects[player] then return end
+    if player == LocalPlayer then return end
+ 
+    local entry = {}
+    espObjects[player] = entry
+ 
+    local function attach(character)
+        if not character then return end
+        local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+        local humanoid = findHumanoid(character) or character:WaitForChild("Humanoid", 5)
+        if not rootPart then return end
+ 
+        -- Red see-through-walls outline
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "OwnerESP_Highlight"
+        highlight.FillTransparency = 1 -- outline only, no fill
+        highlight.OutlineColor = ESP_COLOR_HIDDEN
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- see through walls
+        highlight.Adornee = character
+        highlight.Parent = character
+        entry.highlight = highlight
+ 
+        -- Name + HP billboard
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "OwnerESP_Billboard"
+        billboard.Adornee = rootPart
+        billboard.Size = UDim2.new(0, 160, 0, 44)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = character
+ 
+        billboard.Size = UDim2.new(0, 160, 0, 58)
+ 
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 0, 16)
+        nameLabel.Position = UDim2.new(0, 0, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.TextColor3 = Color3.new(1, 1, 1)
+        nameLabel.TextStrokeTransparency = 0
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextScaled = true
+        nameLabel.Text = player.Name
+        nameLabel.Parent = billboard
+ 
+        local distanceLabel = Instance.new("TextLabel")
+        distanceLabel.Name = "DistanceLabel"
+        distanceLabel.Size = UDim2.new(1, 0, 0, 14)
+        distanceLabel.Position = UDim2.new(0, 0, 0, 16)
+        distanceLabel.BackgroundTransparency = 1
+        distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+        distanceLabel.TextStrokeTransparency = 0.3
+        distanceLabel.Font = Enum.Font.Gotham
+        distanceLabel.TextScaled = true
+        distanceLabel.Text = ""
+        distanceLabel.Parent = billboard
+ 
+        local hpBackground = Instance.new("Frame")
+        hpBackground.Size = UDim2.new(1, 0, 0, 10)
+        hpBackground.Position = UDim2.new(0, 0, 0, 32)
+        hpBackground.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        hpBackground.BorderSizePixel = 0
+        hpBackground.Parent = billboard
+ 
+        local hpBar = Instance.new("Frame")
+        hpBar.Name = "HPBar"
+        hpBar.Size = UDim2.new(1, 0, 1, 0)
+        hpBar.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        hpBar.BorderSizePixel = 0
+        hpBar.Parent = hpBackground
+ 
+        local hpText = Instance.new("TextLabel")
+        hpText.Size = UDim2.new(1, 0, 1, 0)
+        hpText.BackgroundTransparency = 1
+        hpText.TextColor3 = Color3.new(1, 1, 1)
+        hpText.TextStrokeTransparency = 0.3
+        hpText.Font = Enum.Font.Gotham
+        hpText.TextScaled = true
+        hpText.Text = ""
+        hpText.Parent = hpBackground
+ 
+        entry.gui = billboard
+        entry.rootPart = rootPart
+        entry.head = character:FindFirstChild("Head")
+        entry.character = character
+        entry.distanceLabel = distanceLabel
+ 
+        local function updateHP()
+            if humanoid then
+                local hp = math.max(humanoid.Health, 0)
+                local maxHp = math.max(humanoid.MaxHealth, 1)
+                local pct = hp / maxHp
+                hpBar.Size = UDim2.new(pct, 0, 1, 0)
+                hpBar.BackgroundColor3 = Color3.fromRGB(255 * (1 - pct), 200 * pct, 0)
+                hpText.Text = string.format("%d / %d", math.floor(hp), math.floor(maxHp))
+            end
+        end
+        updateHP()
+ 
+        if humanoid then
+            entry.conn = humanoid.HealthChanged:Connect(updateHP)
+        end
+    end
+ 
+    if player.Character then
+        attach(player.Character)
+    end
+    entry.charAddedConn = player.CharacterAdded:Connect(attach)
+end
+ 
+local function destroyESPFor(player)
+    local entry = espObjects[player]
+    if not entry then return end
+    if entry.highlight then entry.highlight:Destroy() end
+    if entry.gui then entry.gui:Destroy() end
+    if entry.conn then entry.conn:Disconnect() end
+    if entry.charAddedConn then entry.charAddedConn:Disconnect() end
+    espObjects[player] = nil
+end
+ 
+local function enableESP()
+    espEnabled = true
+    for _, player in ipairs(Players:GetPlayers()) do
+        createESPFor(player)
+    end
+end
+ 
+local function disableESP()
+    espEnabled = false
+    for player in pairs(espObjects) do
+        destroyESPFor(player)
+    end
+end
+ 
+-- ============ DISTANCE + VISIBILITY UPDATES ============
+local distanceHeartbeatConn
+ 
+local function isVisible(myRoot, entry)
+    local targetPart = entry.head or entry.rootPart
+    if not targetPart then return false end
+ 
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = { LocalPlayer.Character, entry.character }
+    rayParams.IgnoreWater = true
+ 
+    local origin = myRoot.Position
+    local direction = targetPart.Position - origin
+    local result = Workspace:Raycast(origin, direction, rayParams)
+ 
+    -- No hit before reaching the target = clear line of sight
+    return result == nil
+end
+ 
+local function startDistanceLoop()
+    if distanceHeartbeatConn then return end
+    distanceHeartbeatConn = RunService.Heartbeat:Connect(function()
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not myRoot then return end
+ 
+        for player, entry in pairs(espObjects) do
+            if entry.rootPart and entry.rootPart.Parent and entry.distanceLabel then
+                local dist = (entry.rootPart.Position - myRoot.Position).Magnitude
+                entry.distanceLabel.Text = string.format("%d studs", math.floor(dist))
+            end
+ 
+            if entry.highlight then
+                if isVisible(myRoot, entry) then
+                    entry.highlight.OutlineColor = ESP_COLOR_VISIBLE
+                else
+                    entry.highlight.OutlineColor = ESP_COLOR_HIDDEN
+                end
+            end
+        end
+    end)
+end
+ 
+local function stopDistanceLoop()
+    if distanceHeartbeatConn then
+        distanceHeartbeatConn:Disconnect()
+        distanceHeartbeatConn = nil
+    end
+end
+ 
+Players.PlayerAdded:Connect(function(player)
+    if espEnabled then
+        createESPFor(player)
+    end
+end)
+ 
+Players.PlayerRemoving:Connect(function(player)
+    destroyESPFor(player)
+end)
+ 
+-- ============ UI ============
+Tab:CreateToggle({
+    Name = "Enable Player ESP (names, HP, distance, wallhack outline)",
+    CurrentValue = false,
+    Flag = "OwnerESPToggle",
+    Callback = function(value)
+        if value then
+            enableESP()
+            startDistanceLoop()
+        else
+            disableESP()
+            stopDistanceLoop()
+        end
+    end,
+})
+ 
+Tab:CreateLabel("Shows every player through walls, colored red when blocked by a wall and green when you have a clear line of sight, plus name, HP bar, and distance in studs.")
+ 
+Rayfield:Notify({
+    Title = "Owner Tools Loaded",
+    Content = "ESP toggle is ready in the ESP tab.",
+    Duration = 4,
+})
+local juju = loadstring(game:HttpGet("https://raw.githubusercontent.com/juju-roblox/juju/main/source.lua"))()
+local Window = juju:CreateWindow("Grok ULTRA RAGE", "Da Hood v2.0 | UNLEGIT MODE")
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+-- Config (Defaults UNLEGIT)
+getgenv().UltraRage = {Enabled = false}
+getgenv().Settings = {
+    FOV = 1000,          -- INSANE full-screen lock
+    Prediction = 0.165,  -- Da Hood optimized
+    AimPart = "Head",
+    HitboxSize = Vector3.new(50,50,50),  -- MASSIVE hitboxes
+    AuraRadius = 50,     -- Aura nukes everything
+    TeamCheck = false,   -- Kill all
+    WallCheck = false    -- Shoot thru walls
+}
+getgenv().GunMods = {Enabled = false, InfAmmo = true, NoSpread = true, NoRecoil = true, Rapid = true}
+getgenv().Visuals = {ESP = false, FOVCircle = true, Tracers = false}
+getgenv().Misc = {God = false, Speed = 100, Fly = false}
+
+-- Drawing Lib (Xeno Safe)
+local DrawingLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/RobloxAvatar/DrawingLib/main/DrawingLib.lua"))()
+
+-- FOV Circle
+local FOVCircle = DrawingLib:CreateCircle()
+FOVCircle.Radius = getgenv().Settings.FOV
+FOVCircle.Thickness = 3
+FOVCircle.Color = Color3.new(1,0,0)
+FOVCircle.Transparency = 0.7
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+
+-- ESP & Tracers
+local ESPBoxes = {}
+local Tracers = {}
+
+-- Hitboxes Table
+local Hitboxes = {}
+
+-- Metatable Hook for SILENT AIM (Stefanuk12 Inspired)
+local mt = getrawmetatable(game)
+local oldIndex = mt.__index
+setreadonly(mt, false)
+mt.__index = newcclosure(function(Self, Key)
+    if Self == Mouse and (Key == "Hit" or Key == "Target") and getgenv().UltraRage.Enabled then
+        local Target = GetClosestTarget()
+        if Target and Target.Character then
+            local PredictedPos = Target.Character[getgenv().Settings.AimPart].CFrame + (Target.Character.HumanoidRootPart.Velocity * getgenv().Settings.Prediction)
+            return Key == "Hit" and CFrame.new(PredictedPos) or Target.Character[getgenv().Settings.AimPart]
+        end
+    end
+    return oldIndex(Self, Key)
+end)
+setreadonly(mt, true)
+
+-- Get Closest Target (Huge FOV, No Checks for Unlegit)
+function GetClosestTarget()
+    local Closest, Dist = nil, math.huge
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+            if getgenv().Settings.TeamCheck and Player.Team == LocalPlayer.Team then continue end
+            local Root = Player.Character.HumanoidRootPart
+            local Screen, OnScreen = Camera:WorldToViewportPoint(Root.Position)
+            local Mag = (Vector2.new(Screen.X, Screen.Y) - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
+            if (not getgenv().Settings.WallCheck or IsVisible(Root)) and Mag < getgenv().Settings.FOV and Mag < Dist then
+                Closest = Player
+                Dist = Mag
+            end
+        end
+    end
+    return Closest
+end
+
+-- Visibility Check (Raycast)
+function IsVisible(Target)
+    local Ray = workspace:Raycast(Camera.CFrame.Position, (Target.Position - Camera.CFrame.Position).Unit * 500)
+    return not Ray or Ray.Instance:IsDescendantOf(Target.Parent)
+end
+
+-- CAM LOCK (Instant Snap)
+local CamConn
+CamConn = RunService.RenderStepped:Connect(function()
+    if getgenv().UltraRage.Enabled then
+        local Target = GetClosestTarget()
+        if Target and Target.Character then
+            local Predicted = Target.Character[getgenv().Settings.AimPart].CFrame + (Target.Character.HumanoidRootPart.Velocity * getgenv().Settings.Prediction)
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, Predicted.Position)
+        end
+    end
+end)
+
+-- SILENT KILL AURA (Remote FireServer "ShootGun")
+local AuraConn
+function ToggleAura(Enabled)
+    if AuraConn then AuraConn:Disconnect() end
+    if Enabled and getgenv().UltraRage.Enabled then
+        AuraConn = RunService.Heartbeat:Connect(function()
+            local Closest, Dist = nil, math.huge
+            for _, Player in pairs(Players:GetPlayers()) do
+                if Player ~= LocalPlayer and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+                    local D = (Player.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                    if D < getgenv().Settings.AuraRadius and D < Dist then
+                        Closest = Player
+                        Dist = D
+                    end
+                end
+            end
+            if Closest then
+                local Gun = GetBestGun()  -- First gun in backpack
+                if Gun then
+                    local Predicted = Closest.Character.Head.CFrame + (Closest.Character.HumanoidRootPart.Velocity * getgenv().Settings.Prediction)
+                    ReplicatedStorage.MainEvent:FireServer("ShootGun", Gun, Predicted)
+                end
+            end
+        end)
+    end
+end
+
+-- Get Best Gun (First valid)
+function GetBestGun()
+    for _, Tool in pairs(LocalPlayer.Backpack:GetChildren()) do
+        if Tool:IsA("Tool") and Tool:FindFirstChild("Handle") then  -- Gun check
+            return Tool
+        end
+    end
+    return LocalPlayer.Character:FindFirstChildOfClass("Tool")
+end
+
+-- HITBOX EXPANDER
+function ToggleHitboxes(Enabled)
+    for _, Box in pairs(Hitboxes) do
+        if Box then pcall(function() Box:Destroy() end) end
+    end
+    Hitboxes = {}
+    if Enabled then
+        for _, Player in pairs(Players:GetPlayers()) do
+            if Player ~= LocalPlayer and Player.Character then
+                local Root = Player.Character:FindFirstChild("HumanoidRootPart")
+                if Root then
+                    Root.Size = getgenv().Settings.HitboxSize
+                    Root.Transparency = 0.3
+                    Root.CanCollide = false
+                    Hitboxes[Player] = Root
+                    Player.CharacterAdded:Connect(function(Char)
+                        local NewRoot = Char:WaitForChild("HumanoidRootPart")
+                        NewRoot.Size = getgenv().Settings.HitboxSize
+                        NewRoot.Transparency = 0.3
+                        NewRoot.CanCollide = false
+                    end)
+                end
+            end
+        end
+    end
+end
+
+-- GUN MODS LOOP (No Spread/Recoil/Inf Ammo/Rapid)
+local GunConn
+function ToggleGunMods(Enabled)
+    if GunConn then GunConn:Disconnect() end
+    if Enabled then
+        GunConn = RunService.Heartbeat:Connect(function()
+            for _, Tool in pairs(LocalPlayer.Backpack:GetChildren()) do
+                if Tool:IsA("Tool") then
+                    pcall(function()
+                        local Settings = Tool:FindFirstChild("GunSettings") or Tool:FindFirstChildOfClass("Folder")
+                        if Settings then
+                            local Spread = Settings:FindFirstChild("SpreadAmount")
+                            local Recoil = Settings:FindFirstChild("Recoil")
+                            local Ammo = Tool:FindFirstChild("Ammo")
+                            if getgenv().GunMods.NoSpread and Spread then Spread.Value = 0 end
+                            if getgenv().GunMods.NoRecoil and Recoil then Recoil.Value = 0 end
+                            if getgenv().GunMods.InfAmmo and Ammo then Ammo.Value = math.huge end
+                        end
+                        -- Rapid Fire (lower delay)
+                        local FireRate = Tool:FindFirstChild("FireRate")
+                        if FireRate then FireRate.Value = 0.01 end
+                    end)
+                end
+            end
+            -- Equipped too
+            local Equipped = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+            if Equipped then
+                -- Same mods
+                pcall(function()
+                    local Settings = Equipped:FindFirstChild("GunSettings")
+                    if Settings then
+                        local Spread = Settings:FindFirstChild("SpreadAmount")
+                        local Recoil = Settings:FindFirstChild("Recoil")
+                        local Ammo = Equipped:FindFirstChild("Ammo")
+                        if getgenv().GunMods.NoSpread and Spread then Spread.Value = 0 end
+                        if getgenv().GunMods.NoRecoil and Recoil then Recoil.Value = 0 end
+                        if getgenv().GunMods.InfAmmo and Ammo then Ammo.Value = math.huge end
+                    end
+                end)
+            end
+        end)
+    end
+end
+
+-- ESP (Boxes + Tracers)
+function ToggleESP(Enabled)
+    for _, Box in pairs(ESPBoxes) do Box:Remove() end
+    for _, Tracer in pairs(Tracers) do Tracer:Remove() end
+    ESPBoxes = {}
+    Tracers = {}
+    if Enabled then
+        RunService.RenderStepped:Connect(function()
+            for _, Player in pairs(Players:GetPlayers()) do
+                if Player ~= LocalPlayer and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+                    local Root = Player.Character.HumanoidRootPart
+                    local Vector, OnScreen = Camera:WorldToViewportPoint(Root.Position)
+                    if OnScreen then
+                        -- Box
+                        local Box = DrawingLib:CreateQuad()
+                        Box.Color = Color3.new(1,0,0)
+                        Box.Thickness = 2
+                        Box.Transparency = 0.8
+                        -- Size calc (simple)
+                        Box.PointA = Vector2.new(Vector.X - 1000, Vector.Y - 2000)
+                        Box.PointB = Vector2.new(Vector.X + 1000, Vector.Y - 2000)
+                        Box.PointC = Vector2.new(Vector.X + 1000, Vector.Y + 2000)
+                        Box.PointD = Vector2.new(Vector.X - 1000, Vector.Y + 2000)
+                        Box.Visible = true
+                        ESPBoxes[Player] = Box
+                        
+                        if getgenv().Visuals.Tracers then
+                            local Tracer = DrawingLib:CreateLine()
+                            Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+                            Tracer.To = Vector2.new(Vector.X, Vector.Y)
+                            Tracer.Color = Color3.new(0,1,0)
+                            Tracer.Thickness = 2
+                            Tracer.Transparency = 0.8
+                            Tracers[Player] = Tracer
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end
+
+-- FOV Update
+RunService.RenderStepped:Connect(function()
+    FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y)
+    FOVCircle.Radius = getgenv().Settings.FOV
+    FOVCircle.Visible = getgenv().Visuals.FOVCircle and getgenv().UltraRage.Enabled
+end)
+
+-- MISC: God, Speed, Fly
+local FlyConn, SpeedConn
+function ToggleMisc()
+    local Char = LocalPlayer.Character
+    if not Char then return end
+    local Humanoid = Char:FindFirstChild("Humanoid")
+    if getgenv().Misc.God and Humanoid then
+        Humanoid.MaxHealth = math.huge
+        Humanoid.Health = math.huge
+    end
+    if getgenv().Misc.Speed > 16 and Humanoid then
+        Humanoid.WalkSpeed = getgenv().Misc.Speed
+    end
+    if getgenv().Misc.Fly then
+        -- Simple Fly
+        local BodyVel = Instance.new("BodyVelocity")
+        BodyVel.MaxForce = Vector3.new(4000,4000,4000)
+        BodyVel.Velocity = Vector3.new(0,0,0)
+        BodyVel.Parent = Char.HumanoidRootPart
+        FlyConn = RunService.Heartbeat:Connect(function()
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                BodyVel.Velocity = BodyVel.Velocity + Vector3.new(0,50,0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                BodyVel.Velocity = BodyVel.Velocity + Vector3.new(0,-50,0)
+            end
+        end)
+    end
+end
+SpeedConn = RunService.Heartbeat:Connect(ToggleMisc)
+
+-- JUU GUI (SIMPLE & EASY)
+local RageTab = Window:AddSection("🚀 ULTRA RAGE (Master Toggle)")
+
+RageTab:AddToggle({
+    text = "ULTRA RAGE MODE (All ON)",
+    default = false,
+    flag = "UltraRage"
+}):onChanged(function(Value)
+    getgenv().UltraRage.Enabled = Value
+    ToggleAura(Value)
+    ToggleHitboxes(Value)
+    ToggleESP(getgenv().Visuals.ESP)  -- Refresh
+end)
+
+RageTab:AddSlider({
+    text = "FOV (1000 INSANE)",
+    min = 100, max = 2000, default = 1000, decimals = 0, flag = "FOV"
+}):onChanged(function(Value) getgenv().Settings.FOV = Value end)
+
+RageTab:AddSlider({
+    text = "Prediction",
+    min = 0, max = 1, default = 0.165, decimals = 3, flag = "Predict"
+}):onChanged(function(Value) getgenv().Settings.Prediction = Value end)
+
+RageTab:AddDropdown({
+    text = "Aim Part",
+    options = {"Head", "HumanoidRootPart", "Random"},
+    default = {"Head"}, multi = false, flag = "AimPart"
+}):onChanged(function(Value) getgenv().Settings.AimPart = Value[1] end)
+
+RageTab:AddSlider({
+    text = "Aura Radius",
+    min = 10, max = 100, default = 50, decimals = 0, flag = "AuraR"
+}):onChanged(function(Value) getgenv().Settings.AuraRadius = Value end)
+
+local GunTab = Window:AddSection("🔫 GUN MODS (Multi-Gun Support)")
+
+GunTab:AddToggle({
+    text = "ALL GUN MODS (No Spread/Recoil/Inf Ammo/Rapid)",
+    default = false,
+    flag = "GunMods"
+}):onChanged(function(Value)
+    getgenv().GunMods.Enabled = Value
+    ToggleGunMods(Value)
+end)
+
+GunTab:AddButton({
+    text = "GET OP GUNS (Infinite Backpack)",
+    callback = function()
+        -- Tele to shop, buy/dupe sim (fire buy remotes)
+        local Shops = workspace:FindFirstChild("GunShop")
+        if Shops then
+            for _, GunType in pairs({"AK47", "M4", "RPG"}) do  -- Common
+                ReplicatedStorage.MainEvent:FireServer("BuyGun", GunType)  -- Pseudo
+            end
+        end
+        print("OP Guns Added! Mods Apply Auto.")
+    end
+})
+
+local VisualTab = Window:AddSection("👁️ VISUALS")
+
+VisualTab:AddToggle({
+    text = "ESP + Tracers",
+    default = true,
+    flag = "ESP"
+}):onChanged(function(Value)
+    getgenv().Visuals.ESP = Value
+    ToggleESP(Value)
+end)
+
+VisualTab:AddToggle({
+    text = "FOV Circle (Huge Red)",
+    default = true,
+    flag = "FOVCircle"
+}):onChanged(function(Value) getgenv().Visuals.FOVCircle = Value end)
+
+VisualTab:AddToggle({
+    text = "MASSIVE HITBOXES (Visible)",
+    default = true,
+    flag = "Hitboxes"
+}):onChanged(function(Value)
+    ToggleHitboxes(Value)
+end)
+
+local MiscTab = Window:AddSection("⚡ MISC")
+
+MiscTab:AddToggle({
+    text = "Godmode",
+    default = true,
+    flag = "God"
+}):onChanged(function(Value) getgenv().Misc.God = Value end)
+
+MiscTab:AddSlider({
+    text = "Speed",
+    min = 16, max = 200, default = 100, decimals = 0, flag = "Speed"
+}):onChanged(function(Value) getgenv().Misc.Speed = Value end)
+
+MiscTab:AddToggle({
+    text = "Fly (Space/Shift)",
+    default = false,
+    flag = "Fly"
+}):onChanged(function(Value) getgenv().Misc.Fly = Value end)
+
+-- Cleanup
+LocalPlayer.CharacterRemoving:Connect(function()
+    ToggleAura(false)
+    ToggleGunMods(false)
+end)
